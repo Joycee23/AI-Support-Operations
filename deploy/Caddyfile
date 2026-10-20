@@ -1,0 +1,24 @@
+{
+    servers {
+        max_header_size 32kb
+        timeouts {
+            read_header 5s
+            read_body 30s
+            write 2m
+            idle 1m
+        }
+    }
+}
+
+{$APP_DOMAIN} {
+    header -Server
+    request_body {
+        max_size 11MB
+    }
+    reverse_proxy app:8000 {
+        transport http {
+            dial_timeout 5s
+            response_header_timeout 115s
+        }
+    }
+}

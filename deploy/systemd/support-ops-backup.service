@@ -1,0 +1,9 @@
+[Unit]
+Description=Encrypted support operations offsite backup
+[Service]
+Type=oneshot
+User=supportops
+WorkingDirectory=/opt/support-ops
+ExecStart=/opt/support-ops/.venv/bin/python /opt/support-ops/scripts/backup_cycle.py
+UMask=0077
+NoNewPrivileges=true
