@@ -19,7 +19,7 @@ from server import models, auth_models, billing_models
 def main():
     load_dotenv(ROOT / '.env')
     migration = os.getenv('DATABASE_MIGRATION_URL', '')
-    runtime = os.getenv('DOCKER_DATABASE_URL', '')
+    runtime = os.getenv('RUNTIME_DATABASE_URL') or os.getenv('DOCKER_DATABASE_URL', '')
     if not migration or not runtime:
         raise SystemExit('Cần DATABASE_MIGRATION_URL và DOCKER_DATABASE_URL riêng. Xem SECURITY.md.')
     admin, app = make_url(migration), make_url(runtime)
@@ -29,12 +29,31 @@ def main():
     role = engine.dialect.identifier_preparer.quote(app.username)
     try:
         with engine.begin() as db:
+            db.execute(text('SELECT pg_advisory_xact_lock(7020202601)'))
             existing = db.execute(text('SELECT rolsuper, rolbypassrls, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname=:name'), {'name':app.username}).first()
             if existing and any(existing):
                 raise RuntimeError('Runtime role đang có quyền quản trị; dùng role mới hoặc thu hồi quyền trước.')
             if not existing:
                 password = db.scalar(text('SELECT quote_literal(:password)'), {'password':app.password})
                 db.exec_driver_sql(f'CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD {password}')
+            backup_url = os.getenv('BACKUP_DATABASE_URL', '')
+            if backup_url:
+                backup = make_url(backup_url)
+                if (not backup.username or not backup.password or len(backup.password)<24
+                    or backup.username in {admin.username, app.username} or backup.database!=admin.database
+                    or backup.host!=admin.host or backup.port!=admin.port):
+                    raise RuntimeError('Backup reader must be separate, on the same database, with a strong password')
+                backup_role = engine.dialect.identifier_preparer.quote(backup.username)
+                flags = db.execute(text('SELECT rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname=:name'), {'name':backup.username}).first()
+                if flags and any(flags):
+                    raise RuntimeError('Backup reader cannot hold administration rights')
+                if not flags:
+                    quoted = db.scalar(text('SELECT quote_literal(:password)'), {'password':backup.password})
+                    db.exec_driver_sql(f'CREATE ROLE {backup_role} LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS PASSWORD {quoted}')
+                else:
+                    db.exec_driver_sql(f'ALTER ROLE {backup_role} BYPASSRLS INHERIT')
+                db.exec_driver_sql(f'GRANT pg_read_all_data TO {backup_role}')
+                db.exec_driver_sql(f'ALTER ROLE {backup_role} SET default_transaction_read_only=on')
             db.execute(text('CREATE EXTENSION IF NOT EXISTS vector'))
             db.execute(text('REVOKE CREATE ON SCHEMA public FROM PUBLIC'))
             db.execute(text('REVOKE CREATE, TEMPORARY ON DATABASE ' + engine.dialect.identifier_preparer.quote(app.database) + ' FROM PUBLIC'))

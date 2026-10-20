@@ -32,7 +32,7 @@ def main():
                  'requirements.txt', 'requirements-ops.txt', 'package.json',
                  'package-lock.json', 'Dockerfile', 'docker-compose.yml',
                  'alembic.ini', 'index.html', 'vite.config.ts', 'tsconfig.json',
-                 '.env.example', 'README.md', 'OPERATIONS.md', 'SECURITY.md']
+                 '.env.example', 'README.md', 'OPERATIONS.md', 'SECURITY.md', 'RAILWAY_DEPLOY.md', 'railway.json']
         with tarfile.open(fileobj=sys.stdout.buffer, mode='w|gz') as archive:
             for name in roots:
                 source = ROOT / name
@@ -58,10 +58,23 @@ def main():
         command += ['app', 'tar', '-czf', '-', '-C', '/app/data', 'uploads']
     else:
         command = [sys.executable, str(Path(__file__).resolve()), '--release-stream']
+    environment = None
+    if os.getenv('BACKUP_MODE', 'compose') == 'direct':
+        if args.kind == 'database':
+            from sqlalchemy.engine import make_url
+            url = make_url(os.environ['BACKUP_DATABASE_URL'])
+            # Credentials travel in the child environment, never argv/logs.
+            environment = {**os.environ, 'PGHOST': url.host or '', 'PGPORT': str(url.port or 5432),
+                'PGUSER': url.username or '', 'PGPASSWORD': url.password or '', 'PGDATABASE': url.database or '',
+                'PGCONNECT_TIMEOUT': '10', 'PGSSLMODE': str(url.query.get('sslmode', 'prefer'))}
+            command = ['pg_dump', '--format=custom', '--no-owner', '--no-acl', '--exclude-schema=test_*']
+        elif args.kind == 'files':
+            uploads = Path(os.environ['UPLOAD_DIR']).resolve()
+            command = ['tar', '-czf', '-', '-C', str(uploads.parent), uploads.name]
     producer = None
     try:
         with tempfile.TemporaryFile() as errors:
-            producer = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=errors)
+            producer = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=errors, env=environment)
             encrypted = subprocess.run(['age', '--encrypt', '--recipient', recipient, '--output', str(partial)],
                                        stdin=producer.stdout, stderr=errors, timeout=300)
             producer.stdout.close()

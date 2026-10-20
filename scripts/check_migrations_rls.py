@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 
 def main():
-    url=make_url((dotenv_values(ROOT/'.env').get('DATABASE_MIGRATION_URL') or dotenv_values(ROOT/'.env')['DATABASE_URL']))
+    url=make_url(os.getenv('TEST_DATABASE_URL') or os.getenv('DATABASE_MIGRATION_URL') or dotenv_values(ROOT/'.env').get('DATABASE_MIGRATION_URL') or dotenv_values(ROOT/'.env')['DATABASE_URL'])
     suffix=uuid.uuid4().hex[:12]
     name='test_migrations_'+suffix
     role='test_runtime_'+suffix
@@ -59,6 +59,7 @@ def main():
             report['revision_at_head']=db.scalar(text('SELECT version_num FROM alembic_version'))=='0003_operational_signals'
             report['forced_rls_tables']=db.scalar(text("SELECT count(*) FROM pg_class WHERE relname IN ('tickets','ticket_messages','knowledge_items','knowledge_versions','knowledge_chunks','ai_analyses','audit_events') AND relrowsecurity AND relforcerowsecurity"))==7
         report['passed']=all(report.values())
+        (ROOT/'artifacts').mkdir(exist_ok=True)
         (ROOT/'artifacts/acceptance-migrations-rls.json').write_text(json.dumps(report,indent=2))
         print(json.dumps(report,indent=2))
         return not report['passed']

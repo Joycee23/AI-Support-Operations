@@ -34,16 +34,19 @@ def main():
     parser.add_argument('--local-only', action='store_true', help='Explicitly skip offsite upload; not a complete backup policy')
     args=parser.parse_args()
     os.umask(0o077)
-    folder=ROOT/'backups'; folder.mkdir(mode=0o700,exist_ok=True)
+    folder=Path(os.getenv('OPS_STATE_DIR', str(ROOT))) / 'backups'; folder.mkdir(mode=0o700,parents=True,exist_ok=True)
     with (folder/'.cycle.lock').open('a') as lock:
         try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError: return
+        kinds=tuple(x.strip() for x in os.getenv('BACKUP_KINDS','database,files,application').split(','))
+        if not kinds or any(x not in {'database','files','application'} for x in kinds) or len(set(kinds))!=len(kinds):
+            raise RuntimeError('BACKUP_KINDS must select unique database, files or application kinds')
         paths=[]
-        for kind in ('database','files','application'):
-            result=subprocess.run([sys.executable,str(ROOT/'scripts/backup_secure.py'),'--kind',kind],cwd=ROOT,
+        for kind in kinds:
+            result=subprocess.run([sys.executable,str(ROOT/'scripts/backup_secure.py'),'--kind',kind,'--output-dir',str(folder)],cwd=ROOT,
                                   capture_output=True,text=True,timeout=360,check=True)
             paths.append(Path(result.stdout.strip()))
-        state={'createdAt':datetime.now(timezone.utc).isoformat(),'localComplete':True,'offsiteVerified':False}
+        state={'createdAt':datetime.now(timezone.utc).isoformat(),'localComplete':True,'offsiteVerified':False,'kinds':list(kinds)}
         try:
             if not args.local_only:
                 import boto3

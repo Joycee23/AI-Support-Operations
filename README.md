@@ -261,3 +261,9 @@ Sau khi tạo .env, chạy `.venv/bin/python scripts/init_security.py` để t�
 ## Vận hành, migration và R2
 
 Xem [OPERATIONS.md](OPERATIONS.md) để tạo bucket R2, bật sao lưu ngoài máy, vận hành cảnh báo và nâng cấp schema bằng Alembic. Database phải được migrate trước khi khởi động app.
+
+## CI/CD và Railway
+
+Xem [RAILWAY_DEPLOY.md](RAILWAY_DEPLOY.md) để thiết lập GitHub Actions, Railway pgvector,
+runtime role, migration riêng, volume, R2 backup, uptime và release/rollback.
+Railway dùng `railway.json` và `deploy/railway/Dockerfile`; Docker Compose local giữ nguyên.

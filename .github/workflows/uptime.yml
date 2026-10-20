@@ -1,0 +1,30 @@
+name: Public uptime check
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ready:
+    if: vars.PRODUCTION_URL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Require public HTTPS and a ready application
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          from urllib.parse import urlsplit
+          url = os.environ['PRODUCTION_URL'].rstrip('/')
+          p = urlsplit(url)
+          if p.scheme != 'https' or not p.hostname or p.username or p.password or p.query or p.fragment:
+              raise SystemExit('PRODUCTION_URL must be the public HTTPS app origin.')
+          with urllib.request.urlopen(url+'/api/ready', timeout=30) as r:
+              if r.status != 200 or json.load(r).get('ok') is not True:
+                  raise SystemExit('Production readiness check failed.')
+          print('Production is ready.')
+          PY

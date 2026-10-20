@@ -57,14 +57,21 @@ def inspect_health():
     disk=shutil.disk_usage(ROOT)
     if disk.free < int(os.getenv('MONITOR_MIN_FREE_BYTES',str(2*1024**3))) or disk.used/disk.total > .90:
         problems.append('Dung lượng ổ đĩa máy chủ dưới ngưỡng an toàn (2 GiB hoặc còn dưới 10%).')
+    if os.getenv('BACKUP_MODE', 'compose') == 'direct':
+        try:
+            volume=shutil.disk_usage(os.environ['UPLOAD_DIR'])
+            if volume.free<int(os.getenv('MONITOR_MIN_FREE_BYTES',str(2*1024**3))) or volume.free/volume.total<.1:
+                problems.append('Volume tài liệu sắp hết dung lượng.')
+        except Exception:problems.append('Không kiểm tra được volume tài liệu.')
+    else:
+        try:
+            result=subprocess.run(['docker','compose','exec','-T','app','python','-c',
+                "import shutil,json; d=shutil.disk_usage('/app/data'); print(json.dumps([d.free,d.total]))"],cwd=ROOT,capture_output=True,text=True,timeout=15,check=True)
+            free,total=json.loads(result.stdout)
+            if free<int(os.getenv('MONITOR_MIN_FREE_BYTES',str(2*1024**3))) or free/total<.1:problems.append('Volume tài liệu Docker sắp hết dung lượng.')
+        except Exception:problems.append('Không kiểm tra được volume tài liệu hoặc container app đã dừng.')
     try:
-        result=subprocess.run(['docker','compose','exec','-T','app','python','-c',
-            "import shutil,json; d=shutil.disk_usage('/app/data'); print(json.dumps([d.free,d.total]))"],cwd=ROOT,capture_output=True,text=True,timeout=15,check=True)
-        free,total=json.loads(result.stdout)
-        if free<int(os.getenv('MONITOR_MIN_FREE_BYTES',str(2*1024**3))) or free/total<.1:problems.append('Volume tài liệu Docker sắp hết dung lượng.')
-    except Exception:problems.append('Không kiểm tra được volume tài liệu hoặc container app đã dừng.')
-    try:
-        state=json.loads((ROOT/'backups/status.json').read_text())
+        state=json.loads((Path(os.getenv('OPS_STATE_DIR',str(ROOT)))/'backups/status.json').read_text())
         if not state.get('offsiteVerified'):problems.append('Bản sao lưu gần nhất chưa được xác minh ngoài máy.')
         if now-datetime.fromisoformat(state['createdAt'])>timedelta(hours=26):problems.append('Bản sao lưu đã quá 26 giờ.')
     except Exception:problems.append('Chưa có trạng thái sao lưu hợp lệ.')
@@ -73,7 +80,7 @@ def inspect_health():
 
 def main():
     load_dotenv(ROOT/'.env');os.umask(0o077)
-    folder=ROOT/'data/monitor';folder.mkdir(parents=True,exist_ok=True,mode=0o700)
+    folder=Path(os.getenv('OPS_STATE_DIR', str(ROOT/'data'))) / 'monitor';folder.mkdir(parents=True,exist_ok=True,mode=0o700)
     with (folder/'.lock').open('a') as lock:
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:return 0

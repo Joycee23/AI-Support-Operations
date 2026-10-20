@@ -40,5 +40,6 @@ if __name__ == '__main__':
     for method, path, _ in routes:
         report['routes'].append({'method': method, 'path': path,
             'testedStatuses': sorted(coverage.get((method, path), set()))})
+    (ROOT/'artifacts').mkdir(exist_ok=True)
     (ROOT/'artifacts/acceptance-route-coverage.json').write_text(json.dumps(report, indent=2))
     raise SystemExit(not result.wasSuccessful())
